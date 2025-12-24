@@ -44,3 +44,5 @@ Producer/Consumer: Simulates complex message-passing application architectures.
 Python 3.8+
 
 Works on Windows, Linux, and macOS (multiprocessing support included).
+
+SiliconBench is not affiliated with any other benchmark vendor
