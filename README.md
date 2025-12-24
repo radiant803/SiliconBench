@@ -1,5 +1,5 @@
 # SiliconBench
-#A simple and lightweight benchmarking software written in Python.
+A simple and lightweight benchmarking software written in Python.
 🚀 Key Features
 Pure Python: Built entirely with the standard library (multiprocessing, tkinter, time), making it lightweight and portable with zero external dependencies.
 Real-World Workload Simulation: Uses specific "kernels" that mimic real software behavior rather than abstract loops.
