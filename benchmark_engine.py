@@ -43,6 +43,9 @@ class BenchmarkEngine:
 
     def _run_single_core_pass(self, tasks):
         results = {}
+        total_time = 0.0
+        total_baseline = 0.0
+        
         for name, func, args, baseline in tasks:
             if not self.running: break
             self.log(f"Running SC {name}...")
@@ -55,15 +58,22 @@ class BenchmarkEngine:
                 continue
             duration = time.perf_counter() - start
             
+            total_time += duration
+            total_baseline += baseline
+            
             score = self.calculate_score(baseline, duration)
             results[name] = score
             self.log(f"  > Time: {duration:.4f}s | Score: {score}")
             time.sleep(0.5) # Short gap
-        return results
+            
+        return results, total_time, total_baseline
 
     def _run_multi_core_pass(self, tasks):
         # Run SC workloads on ALL cores
         results = {}
+        total_time = 0.0
+        total_baseline = 0.0
+        
         with multiprocessing.Pool(self.num_cores) as pool:
             for name, func, args, baseline in tasks:
                 if not self.running: break
@@ -108,6 +118,9 @@ class BenchmarkEngine:
                     
                 duration = time.perf_counter() - start
                 
+                total_time += duration
+                total_baseline += baseline
+                
                 # Score calculation:
                 # If 1 core takes T seconds to do 1 unit of work.
                 # N cores take T seconds to do N units of work (perfect scaling).
@@ -118,13 +131,16 @@ class BenchmarkEngine:
                 results[name] = score
                 self.log(f"  > Time: {duration:.4f}s | Score: {score}")
                 time.sleep(1.0) # Thermal gap
-        return results
+        return results, total_time, total_baseline
 
     def _run_extra_pass(self, tasks):
         # These are the specific MC workloads (contention, etc)
         # They manage their own multiprocessing.
         # We just run them once and time them.
         results = {}
+        total_time = 0.0
+        total_baseline = 0.0
+        
         for name, func, args, baseline in tasks:
             if not self.running: break
             self.log(f"Running Extra {name}...")
@@ -139,13 +155,16 @@ class BenchmarkEngine:
                 continue
             duration = time.perf_counter() - start
             
+            total_time += duration
+            total_baseline += baseline
+            
             # These were designed with baselines for specific iteration counts which implicitly assume N cores.
             # We don't apply N scaling here because the workload ITSELF is the N-core workload.
             score = self.calculate_score(baseline, duration)
             results[name] = score
             self.log(f"  > Time: {duration:.4f}s | Score: {score}")
             time.sleep(1.0)
-        return results
+        return results, total_time, total_baseline
 
     def run_suite(self, run_sc=True, run_mc=True, run_extra=True):
         self.running = True
@@ -183,35 +202,45 @@ class BenchmarkEngine:
 
         # --- EXECUTION ---
         
+        # --- EXECUTION ---
+        
         sc_scores = {}
         mc_scores = {} # Throughput
         ex_scores = {} # System/Extra
+        
+        sc_t, sc_b = 0.0, 0.0
+        mc_t, mc_b = 0.0, 0.0
+        ex_t, ex_b = 0.0, 0.0
 
         # 1. Single Core Pass
         if run_sc and self.running:
             self.log("\n[Phase 1] Single-Core Performance")
-            sc_scores = self._run_single_core_pass(sc_workloads)
+            sc_scores, sc_t, sc_b = self._run_single_core_pass(sc_workloads)
+            self.log(f">> SC Total Time: {sc_t:.4f}s")
 
         # 2. Multi Core Pass (Run SC workloads on all cores)
         if run_mc and self.running:
             self.log("\n[Phase 2] Multi-Core Throughput")
-            mc_scores = self._run_multi_core_pass(sc_workloads)
+            mc_scores, mc_t, mc_b = self._run_multi_core_pass(sc_workloads)
+            self.log(f">> MC Total Time: {mc_t:.4f}s")
 
         # 3. Extra/System Pass
         if run_extra and self.running:
             self.log("\n[Phase 3] System & Scaling Extras")
-            ex_scores = self._run_extra_pass(extra_workloads)
+            ex_scores, ex_t, ex_b = self._run_extra_pass(extra_workloads)
+            self.log(f">> EX Total Time: {ex_t:.4f}s")
 
         if not self.running:
             return None
 
         # --- AGGREGATION ---
         
-        def avg(lst): return int(sum(lst)/len(lst)) if lst else 0
+        # New Scoring: Based on Total Time vs Total Baseline
+        # Score = (TotalBaseline / TotalTime) * 1000 * Scale
         
-        final_sc = avg(list(sc_scores.values()))
-        final_mc = avg(list(mc_scores.values()))
-        final_ex = avg(list(ex_scores.values()))
+        final_sc = self.calculate_score(sc_b, sc_t)
+        final_mc = self.calculate_score(mc_b, mc_t, scale_factor=self.num_cores)
+        final_ex = self.calculate_score(ex_b, ex_t)
         
         self.log("=" * 40)
         self.log(f"Single-Core Score:   {final_sc}")
